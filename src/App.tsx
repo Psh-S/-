@@ -5,8 +5,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RotateCcw, Trophy, User, Circle, Cpu, Globe, Hash, Copy, Check, ArrowLeft, Undo2 } from 'lucide-react';
+import { RotateCcw, Trophy, User, Circle, Cpu, Globe, Hash, Copy, Check, ArrowLeft, Undo2, Sparkles } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
+import { GoogleGenAI, Type } from "@google/genai";
 
 const BOARD_SIZE = 15;
 
@@ -23,6 +24,7 @@ export default function App() {
   const [lastMove, setLastMove] = useState<{ r: number; c: number } | null>(null);
   const [gameMode, setGameMode] = useState<GameMode>('pvc');
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [aiComment, setAiComment] = useState<string | null>(null);
   const [history, setHistory] = useState<{ board: CellValue[][], currentPlayer: Player, lastMove: { r: number; c: number } | null, winner: Player | 'draw' | null }[]>([]);
 
   // Online Mode States
@@ -126,32 +128,73 @@ export default function App() {
     }
   }, [board, winner, gameMode, roomId, checkWinner]);
 
-  // AI Turn Logic
+  // AI Turn Logic (Gemini Powered)
   useEffect(() => {
     if (gameMode === 'pvc' && currentPlayer === 'white' && !winner) {
-      setIsAiThinking(true);
-      const timer = setTimeout(() => {
-        let bestScore = -1;
-        let bestMove = { r: 7, c: 7 };
+      const getGeminiMove = async () => {
+        setIsAiThinking(true);
+        setAiComment(null);
+        
+        try {
+          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: `You are a Gomoku (Five in a Row) grandmaster. You are playing as White (AI).
+            The board is 15x15. Black (Human) moves first.
+            Current board state (null is empty, 'black' is human, 'white' is you):
+            ${JSON.stringify(board)}
+            
+            Analyze the board carefully. Prioritize blocking the opponent's 4-in-a-row or 3-in-a-row.
+            Try to create your own 5-in-a-row.
+            Return your next move as a JSON object with 'row', 'col' (0-14), and a short 'comment' in Chinese about your strategy.`,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  row: { type: Type.INTEGER },
+                  col: { type: Type.INTEGER },
+                  comment: { type: Type.STRING }
+                },
+                required: ["row", "col"]
+              }
+            }
+          });
 
-        for (let r = 0; r < BOARD_SIZE; r++) {
-          for (let c = 0; c < BOARD_SIZE; c++) {
-            if (!board[r][c]) {
-              const aiScore = getCellScore(board, r, c, 'white');
-              const playerScore = getCellScore(board, r, c, 'black');
-              const combinedScore = aiScore * 1.1 + playerScore;
+          const result = JSON.parse(response.text || "{}");
+          if (typeof result.row === 'number' && typeof result.col === 'number' && !board[result.row][result.col]) {
+            if (result.comment) setAiComment(result.comment);
+            makeMove(result.row, result.col, 'white');
+          } else {
+            throw new Error("Invalid move from AI");
+          }
+        } catch (error) {
+          console.error("Gemini AI error, falling back to local heuristic:", error);
+          // Fallback to local heuristic
+          let bestScore = -1;
+          let bestMove = { r: 7, c: 7 };
 
-              if (combinedScore > bestScore) {
-                bestScore = combinedScore;
-                bestMove = { r, c };
+          for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+              if (!board[r][c]) {
+                const aiScore = getCellScore(board, r, c, 'white');
+                const playerScore = getCellScore(board, r, c, 'black');
+                const combinedScore = aiScore * 1.1 + playerScore;
+
+                if (combinedScore > bestScore) {
+                  bestScore = combinedScore;
+                  bestMove = { r, c };
+                }
               }
             }
           }
+          makeMove(bestMove.r, bestMove.c, 'white');
+        } finally {
+          setIsAiThinking(false);
         }
+      };
 
-        makeMove(bestMove.r, bestMove.c, 'white');
-        setIsAiThinking(false);
-      }, 600);
+      const timer = setTimeout(getGeminiMove, 600);
       return () => clearTimeout(timer);
     }
   }, [currentPlayer, gameMode, winner, board, makeMove]);
@@ -421,9 +464,17 @@ export default function App() {
               <motion.div
                 animate={{ opacity: [0.4, 1, 0.4] }}
                 transition={{ repeat: Infinity, duration: 1.5 }}
-                className="text-[10px] text-[#0071E3] font-bold ml-1"
+                className="flex flex-col items-start ml-1"
               >
-                THINKING...
+                <div className="flex items-center gap-1 text-[10px] text-[#0071E3] font-bold">
+                  <Sparkles className="w-3 h-3" />
+                  GEMINI THINKING...
+                </div>
+                {aiComment && (
+                  <div className="text-[9px] text-[#86868B] italic max-w-[120px] truncate">
+                    "{aiComment}"
+                  </div>
+                )}
               </motion.div>
             )}
           </div>
