@@ -1,0 +1,5 @@
+{
+  "name": "五子棋",
+  "description": "A clean, flat-design Gomoku (Five in a Row) game built with React and Tailwind CSS.",
+  "requestFramePermissions": []
+}
