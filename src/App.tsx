@@ -23,6 +23,7 @@ export default function App() {
   );
   const [currentPlayer, setCurrentPlayer] = useState<Player>('black');
   const [winner, setWinner] = useState<Player | 'draw' | null>(null);
+  const [winningLine, setWinningLine] = useState<{ r: number; c: number }[] | null>(null);
   const [lastMove, setLastMove] = useState<{ r: number; c: number } | null>(null);
   const [gameMode, setGameMode] = useState<GameMode>('pvc');
   const [aiType, setAiType] = useState<AiType>('local');
@@ -98,22 +99,29 @@ export default function App() {
     ];
 
     for (const [dr, dc] of directions) {
-      let count = 1;
+      let line = [{ r: row, c: col }];
+      
+      // Check forward
       for (let i = 1; i < 5; i++) {
         const r = row + dr * i;
         const c = col + dc * i;
-        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) count++;
-        else break;
+        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
+          line.push({ r, c });
+        } else break;
       }
+      
+      // Check backward
       for (let i = 1; i < 5; i++) {
         const r = row - dr * i;
         const c = col - dc * i;
-        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) count++;
-        else break;
+        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
+          line.push({ r, c });
+        } else break;
       }
-      if (count >= 5) return true;
+      
+      if (line.length >= 5) return line;
     }
-    return false;
+    return null;
   }, []);
 
   const getCellScore = (board: CellValue[][], r: number, c: number, player: Player) => {
@@ -164,8 +172,10 @@ export default function App() {
         row.map((cell, colIndex) => (rowIndex === r && colIndex === c ? player : cell))
       );
 
-      if (checkWinner(newBoard, r, c, player)) {
+      const winLine = checkWinner(newBoard, r, c, player);
+      if (winLine) {
         setWinner(player);
+        setWinningLine(winLine);
         if (gameMode === 'pvc') {
           if (player === 'black') {
             setStats(s => ({ ...s, humanWins: s.humanWins + 1 }));
@@ -306,6 +316,7 @@ export default function App() {
     setBoard(Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null)));
     setCurrentPlayer('black');
     setWinner(null);
+    setWinningLine(null);
     setLastMove(null);
     setIsAiThinking(false);
     setHistory([]);
@@ -343,6 +354,7 @@ export default function App() {
       setCurrentPlayer(targetState.currentPlayer);
       setLastMove(targetState.lastMove);
       setWinner(targetState.winner);
+      setWinningLine(null);
       setHistory(newHistory);
     }
   };
@@ -601,27 +613,57 @@ export default function App() {
             </span>
             {isAiThinking && (
               <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex flex-col items-start ml-1"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex flex-col items-start ml-2"
               >
-                <div className="flex items-center gap-1 text-[10px] text-[#0071E3] font-bold">
-                  <Sparkles className="w-3 h-3 animate-pulse" />
-                  {aiType === 'gemini' ? 'GEMINI THINKING...' : 'AI THINKING...'}
+                <div className="flex items-center gap-1.5">
+                  <motion.div
+                    animate={{ 
+                      scale: [1, 1.2, 1],
+                      opacity: [0.7, 1, 0.7]
+                    }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                  >
+                    <Sparkles className="w-3 h-3 text-[#0071E3]" />
+                  </motion.div>
+                  <motion.span 
+                    animate={{ 
+                      opacity: [0.6, 1, 0.6],
+                    }}
+                    transition={{ 
+                      repeat: Infinity, 
+                      duration: 1.5,
+                      ease: "easeInOut"
+                    }}
+                    className="text-[10px] text-[#0071E3] font-bold tracking-widest"
+                  >
+                    {aiType === 'gemini' ? 'GEMINI THINKING' : 'AI THINKING'}
+                  </motion.span>
                 </div>
-                {/* Progress Bar */}
-                <div className="w-24 h-1 bg-[#D2D2D7] rounded-full mt-1 overflow-hidden">
+                
+                {/* Enhanced Progress Bar */}
+                <div className="w-28 h-1 bg-[#D2D2D7]/30 rounded-full mt-1.5 overflow-hidden relative">
                   <motion.div
                     initial={{ x: "-100%" }}
-                    animate={{ x: "100%" }}
-                    transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                    className="w-full h-full bg-[#0071E3] rounded-full"
+                    animate={{ x: "200%" }}
+                    transition={{ 
+                      repeat: Infinity, 
+                      duration: 1.5, 
+                      ease: "linear" 
+                    }}
+                    className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-[#0071E3] to-transparent"
                   />
                 </div>
+
                 {aiComment && (
-                  <div className="text-[9px] text-[#86868B] italic max-w-[120px] truncate mt-0.5">
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-[9px] text-[#86868B] italic max-w-[140px] truncate mt-1 bg-white/50 px-1.5 py-0.5 rounded-md border border-[#D2D2D7]/20"
+                  >
                     "{aiComment}"
-                  </div>
+                  </motion.div>
                 )}
               </motion.div>
             )}
@@ -682,7 +724,21 @@ export default function App() {
                         )}
                         <motion.div
                           initial={{ scale: 0, opacity: 0 }}
-                          animate={{ scale: 0.85, opacity: 1 }}
+                          animate={
+                            winningLine?.some(pos => pos.r === r && pos.c === c)
+                              ? { 
+                                  scale: [0.85, 0.95, 0.85],
+                                  boxShadow: cell === 'black' 
+                                    ? ["0 0 0px rgba(0,0,0,0)", "0 0 15px rgba(0,0,0,0.5)", "0 0 0px rgba(0,0,0,0)"]
+                                    : ["0 0 0px rgba(255,255,255,0)", "0 0 15px rgba(255,255,255,0.8)", "0 0 0px rgba(255,255,255,0)"]
+                                }
+                              : { scale: 0.85, opacity: 1 }
+                          }
+                          transition={
+                            winningLine?.some(pos => pos.r === r && pos.c === c)
+                              ? { repeat: Infinity, duration: 1.5 }
+                              : { duration: 0.2 }
+                          }
                           className={`w-full h-full rounded-full shadow-md z-10 ${
                             cell === 'black' ? 'bg-[#1D1D1F]' : 'bg-white border border-[#AEAEB2]'
                           } flex items-center justify-center relative`}
